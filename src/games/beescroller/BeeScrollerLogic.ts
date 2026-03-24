@@ -2,19 +2,19 @@
 export const BEE_NORMAL_SPEED        = 125   // px/s
 export const BEE_SLOWED_SPEED        = 38    // px/s during obstacle hit
 export const BEE_HULK_SPEED          = 158   // px/s while hulk
-export const CATCHER_NORMAL_SPEED    = 118   // px/s (gap closes 7px/s normally)
+export const CATCHER_NORMAL_SPEED    = 140   // px/s (faster than bee — gap closes steadily)
 export const CATCHER_SLOWED_SPEED    = 50    // px/s after knockback ends
 export const CATCHER_KNOCKBACK_SPEED = -95   // px/s — flies backward on trap hit
 export const CATCH_THRESHOLD         = 115   // px gap → trigger catch
-export const MAX_GAP                 = 420   // px — catcher never goes off screen left
-export const SLOWDOWN_DURATION       = 3000  // ms bee is slowed per obstacle
+export const MAX_GAP                 = 500   // px — catcher starts at left edge of screen
+export const SLOWDOWN_DURATION       = 5000  // ms bee is slowed per obstacle
 export const CATCHER_KNOCKBACK_DUR   = 900   // ms catcher flies backward
 export const CATCHER_SLOW_DUR        = 2800  // ms catcher creeps after knockback
 export const HULK_DURATION           = 10000 // ms
-export const INITIAL_GAP             = 200   // starting gap px
+export const INITIAL_GAP             = 500   // starting gap px — catcher at left edge (screen x=0)
 
 export type WorldObjectType =
-  | 'obstacle-flower' | 'obstacle-web' | 'obstacle-branch'
+  | 'obstacle-flower' | 'obstacle-web' | 'obstacle-snake'
   | 'obstacle-mushroom' | 'obstacle-thorns' | 'obstacle-lantern'
   | 'honey' | 'trap-rock' | 'trap-board' | 'trap-vine' | 'hive'
 
@@ -46,64 +46,76 @@ export interface BeeScrollerState {
   phase: 'playing' | 'caught' | 'won'
   worldObjects: WorldObject[]
   catchTimer: number
+  beeSlowedSpeed: number  // level-dependent: BEE_NORMAL_SPEED * (1 - level*0.05)
 }
 
 // ── World layout ──────────────────────────────────────────────────────────────
 type WorldObjectSeed = Omit<WorldObject, 'activated'|'passedByBee'|'passedByCatcher'|'hitBee'|'hitCatcher'|'dodged'>
 
 const OBSTACLE_TYPES: WorldObjectType[] = [
-  'obstacle-flower', 'obstacle-web', 'obstacle-branch',
+  'obstacle-flower', 'obstacle-web', 'obstacle-snake',
   'obstacle-mushroom', 'obstacle-thorns', 'obstacle-lantern',
 ]
-const TRAP_TYPES: WorldObjectType[] = ['trap-rock', 'trap-board', 'trap-vine']
+const TRAP_TYPES: WorldObjectType[] = ['trap-rock', 'trap-rock', 'trap-rock', 'trap-board', 'trap-vine']
 
-// Three vertical bands — player must sweep up and down to dodge
-const Y_HIGH = [165, 195, 225, 250]   // top of flight zone
-const Y_MID  = [290, 325, 355]        // middle
-const Y_LOW  = [390, 425, 460, 490]   // bottom of flight zone
+// Fixed tree world positions — used by the scene to render trees and to snap
+// vine / branch / beehive / web to the correct tree.
+export const TREE_WORLD_XS: number[] = Array.from({ length: 13 }, (_, i) => 400 + i * 600)
+// → 400, 1000, 1600, 2200, 2800, 3400, 4000, 4600, 5200, 5800, 6400, 7000, 7600
 
-const OBSTACLE_R_MAP: Record<string, number> = {
-  'obstacle-flower': 50, 'obstacle-web': 62, 'obstacle-branch': 40,
-  'obstacle-mushroom': 55, 'obstacle-thorns': 45, 'obstacle-lantern': 52,
+function snapToTree(x: number, offset = 0): number {
+  return TREE_WORLD_XS.reduce((best, wx) =>
+    Math.abs(wx - x) < Math.abs(best - x) ? wx : best
+  ) + offset
 }
+
+// Visual center Y for each obstacle — derived from OBJ_HEIGHTS and sprite display height.
+// These MUST stay in sync with OBJ_HEIGHTS and sprite sizes in BeeScrollerScene.ts.
+export const OBSTACLE_HIT_CENTER_Y: Partial<Record<WorldObjectType, number>> = {
+  'obstacle-flower':   528,  // ground (628) - half of 200px height
+  'obstacle-web':      370,  // hang Y (420) - half of 100px height
+  'obstacle-snake':    248,  // top half of tree (tree top=108, center of top half=248)
+  'obstacle-mushroom': 573,  // ground (628) - half of 110px height
+  'obstacle-thorns':   598,  // ground (628) - half of 60px height
+}
+
+// Hit radius per obstacle — roughly half the narrower visual dimension
+export const OBSTACLE_R_MAP: Record<string, number> = {
+  'obstacle-flower':   44,   // half of 90px width
+  'obstacle-web':      46,   // half of 100px
+  'obstacle-snake':    55,   // snake coiled on tree trunk
+  'obstacle-mushroom': 38,   // half of 80px width
+  'obstacle-thorns':   32,   // half of 60px height (low bush)
+  'obstacle-lantern':   0,   // no hitbox
+}
+
+// Purely visual — bee flies through without penalty
+const PASSTHROUGH_OBSTACLES = new Set<WorldObjectType>(['obstacle-lantern'])
 
 function seededRand(seed: number): () => number {
   let s = seed
   return () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646 }
 }
 
-// Pick a Y that is at least 130px from prevY so player must physically move the bee
-function pickObstacleY(rand: () => number, prevY: number): number {
-  const bands = [Y_HIGH, Y_MID, Y_LOW]
-  const eligible = bands.filter(band => {
-    const mid = (band[0] + band[band.length - 1]) / 2
-    return Math.abs(mid - prevY) >= 130
-  })
-  const band = (eligible.length > 0 ? eligible : bands)[Math.floor(rand() * (eligible.length > 0 ? eligible.length : bands.length))]
-  return band[Math.floor(rand() * band.length)]
-}
-
 export function generateWorldObjects(seed = 42): WorldObjectSeed[] {
   const rand = seededRand(seed)
   const objects: WorldObjectSeed[] = []
   const LEVEL_LENGTH = 7200
-  const HONEY_X      = 1800
+  const HONEY_X      = 1500
 
-  // ── Pre-honey: 5–7 obstacles, tight gaps, forced Y zigzag ────────────────
+  // ── Pre-honey: 5–7 obstacles ──────────────────────────────────────────────
   let x = 440
-  let prevY = 325  // start mid so first can go high or low
   const preCount = 5 + Math.floor(rand() * 3)
   for (let i = 0; i < preCount; i++) {
     const type = OBSTACLE_TYPES[Math.floor(rand() * OBSTACLE_TYPES.length)]
-    const hitCenterY = pickObstacleY(rand, prevY)
-    prevY = hitCenterY
-    objects.push({ id: `obs_pre_${i}`, type, worldX: x, hitCenterY, hitRadius: OBSTACLE_R_MAP[type] })
-    // Tight gaps — 200–320px so player barely has time to react
+    const hitCenterY = OBSTACLE_HIT_CENTER_Y[type] ?? 400
+    const hitRadius  = OBSTACLE_R_MAP[type] ?? 40
+    objects.push({ id: `obs_pre_${i}`, type, worldX: x, hitCenterY, hitRadius })
     x += 200 + Math.floor(rand() * 120)
   }
 
-  // ── Honey bucket ─────────────────────────────────────────────────────────
-  objects.push({ id: 'honey', type: 'honey', worldX: HONEY_X })
+  // ── Honey bucket 1 ───────────────────────────────────────────────────────
+  objects.push({ id: 'honey_1', type: 'honey', worldX: HONEY_X })
 
   // ── Hulk zone: obstacles always, trap every 4th item ─────────────────────
   x = HONEY_X + 420
@@ -116,35 +128,54 @@ export function generateWorldObjects(seed = 42): WorldObjectSeed[] {
       x += 200 + Math.floor(rand() * 120)
     }
 
-    // Obstacle — always alternates bands aggressively
     const type = OBSTACLE_TYPES[Math.floor(rand() * OBSTACLE_TYPES.length)]
-    const hitCenterY = pickObstacleY(rand, prevY)
-    prevY = hitCenterY
-    objects.push({ id: `obs_hulk_${i}`, type, worldX: x, hitCenterY, hitRadius: OBSTACLE_R_MAP[type] })
+    const hitCenterY = OBSTACLE_HIT_CENTER_Y[type] ?? 400
+    const hitRadius  = OBSTACLE_R_MAP[type] ?? 40
+    objects.push({ id: `obs_hulk_${i}`, type, worldX: x, hitCenterY, hitRadius })
     x += 190 + Math.floor(rand() * 110)
   }
 
-  // ── Post-hulk sprint: pure obstacle gauntlet, maximum difficulty ──────────
+  // ── Honey bucket 2 (mid-hulk recovery) ───────────────────────────────────
+  objects.push({ id: 'honey_2', type: 'honey', worldX: x })
+  x += 420
+
+  // ── Post-hulk sprint: obstacles with traps every 3rd ─────────────────────
   const postCount = 5 + Math.floor(rand() * 4)
   for (let i = 0; i < postCount; i++) {
+    if (i % 3 === 0) {
+      const trapType = TRAP_TYPES[Math.floor(rand() * TRAP_TYPES.length)]
+      objects.push({ id: `trap_post_${i}`, type: trapType, worldX: x })
+      x += 200 + Math.floor(rand() * 100)
+    }
+
     const type = OBSTACLE_TYPES[Math.floor(rand() * OBSTACLE_TYPES.length)]
-    const hitCenterY = pickObstacleY(rand, prevY)
-    prevY = hitCenterY
-    objects.push({ id: `obs_post_${i}`, type, worldX: x, hitCenterY, hitRadius: OBSTACLE_R_MAP[type] })
-    // Even tighter in final stretch — 180–280px
+    const hitCenterY = OBSTACLE_HIT_CENTER_Y[type] ?? 400
+    const hitRadius  = OBSTACLE_R_MAP[type] ?? 40
+    objects.push({ id: `obs_post_${i}`, type, worldX: x, hitCenterY, hitRadius })
     x += 180 + Math.floor(rand() * 100)
   }
 
+  // ── Honey bucket 3 (pre-hive boost) ──────────────────────────────────────
+  objects.push({ id: 'honey_3', type: 'honey', worldX: x })
+
   // ── Hive at the end ───────────────────────────────────────────────────────
   objects.push({ id: 'hive', type: 'hive', worldX: Math.max(x + 400, LEVEL_LENGTH) })
+
+  // ── Snap tree-attached objects to nearest tree worldX ─────────────────────
+  const TREE_HANGING = new Set(['obstacle-web', 'obstacle-snake', 'trap-vine', 'hive'])
+  for (const o of objects) {
+    if (!TREE_HANGING.has(o.type)) continue
+    o.worldX = snapToTree(o.worldX)
+  }
 
   return objects
 }
 
 export const WORLD_OBJECTS = generateWorldObjects()
 
-export function createInitialState(seed?: number): BeeScrollerState {
+export function createInitialState(seed?: number, level = 1): BeeScrollerState {
   const objects = seed !== undefined ? generateWorldObjects(seed) : WORLD_OBJECTS
+  const beeSlowedSpeed = Math.round(BEE_NORMAL_SPEED * Math.max(0.05, 1 - level * 0.05))
   return {
     beeWorldX: 0,
     catcherWorldX: -INITIAL_GAP,
@@ -158,6 +189,7 @@ export function createInitialState(seed?: number): BeeScrollerState {
     catcherKnockbackTimer: 0,
     phase: 'playing',
     catchTimer: 0,
+    beeSlowedSpeed,
     worldObjects: objects.map(o => ({
       ...o, activated: false, passedByBee: false,
       passedByCatcher: false, hitBee: false, hitCatcher: false, dodged: false,
@@ -175,7 +207,7 @@ export function updateState(state: BeeScrollerState, deltaMs: number): BeeScroll
   if (s.beeSlowTimer > 0) {
     s.beeSlowTimer = Math.max(0, s.beeSlowTimer - deltaMs)
     s.beeSpeed = s.beeSlowTimer > 0
-      ? BEE_SLOWED_SPEED
+      ? s.beeSlowedSpeed
       : (s.isHulk ? BEE_HULK_SPEED : BEE_NORMAL_SPEED)
   }
 
@@ -218,13 +250,13 @@ export function updateState(state: BeeScrollerState, deltaMs: number): BeeScroll
     if (!o.passedByBee && s.beeWorldX > o.worldX) {
       o.passedByBee = true
 
-      if (isObstacle(o.type) && !s.isHulk && !o.hitBee) {
+      if (isObstacle(o.type) && !PASSTHROUGH_OBSTACLES.has(o.type) && !s.isHulk && !o.hitBee) {
         const hitY  = o.hitCenterY ?? 325
         const radius = o.hitRadius ?? 52
         if (Math.abs(s.beeY - hitY) < radius) {
           o.hitBee = true
           s.beeSlowTimer = SLOWDOWN_DURATION
-          s.beeSpeed = BEE_SLOWED_SPEED
+          s.beeSpeed = s.beeSlowedSpeed
         } else {
           o.dodged = true
         }

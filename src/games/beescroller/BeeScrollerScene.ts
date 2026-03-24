@@ -9,7 +9,7 @@ import { BeeCatcherCharacter } from './BeeCatcherCharacter'
 import {
   createInitialState, updateState, getGap, isObstacle, isTrap,
   type BeeScrollerState, type WorldObject, type WorldObjectType,
-  CATCH_THRESHOLD, CATCHER_NORMAL_SPEED, MAX_GAP,
+  CATCH_THRESHOLD, CATCHER_NORMAL_SPEED, MAX_GAP, TREE_WORLD_XS,
 } from './BeeScrollerLogic'
 
 // Screen layout constants
@@ -19,10 +19,20 @@ const CATCHER_SCREEN_Y = 604 // catcher runs on ground
 const GROUND_Y      = 628   // top of ground strip
 const WORLD_LENGTH  = 4400  // level total px
 const OBJ_HEIGHTS: Record<WorldObjectType, number> = {
-  'obstacle-flower': 355, 'obstacle-web': 360, 'obstacle-branch': 330,
-  'obstacle-mushroom': 400, 'obstacle-thorns': 410, 'obstacle-lantern': 280,
-  'honey': 490, 'trap-rock': 598, 'trap-board': 608, 'trap-vine': 540,
-  'hive': 300,
+  // Ground-anchored (bottom of sprite at GROUND_Y=628)
+  'obstacle-flower':   628,  // 90×200 — tall flower
+  'obstacle-mushroom': 628,  // 80×110 — mushroom cluster
+  // Tree-body (center at top-half of tree; snake height=140, bottom=248+70=318)
+  'obstacle-snake':    318,  // 160×140 — snake in top half of tree
+  'obstacle-thorns':   628,  // 130×60 — low thorny bush
+  'obstacle-lantern':  628,  // 45×160 — floor lamp, lumberjack height
+  'honey':             628,  // 70×100 — honey bucket on ground
+  'trap-rock':         628,  // 90×55  — rock on ground
+  'trap-board':        628,  // 130×85 — board on ground
+  // Tree-hanging (bottom of sprite at given Y, hangs down from tree canopy)
+  'obstacle-web':      420,  // 100×100 — spider web from tree
+  'trap-vine':         490,  // 40×130  — vine from tree
+  'hive':              490,  // 90×160  — beehive from tree
 }
 
 interface WorldSprite {
@@ -40,7 +50,18 @@ export class BeeScrollerScene extends Phaser.Scene {
   private worldSprites: WorldSprite[] = []
   private clouds: { img: Phaser.GameObjects.TileSprite; speed: number }[] = []
   private groundTile!: Phaser.GameObjects.TileSprite
-  private treeDeco: Phaser.GameObjects.Image[] = []
+  private treeSprites: { img: Phaser.GameObjects.Image; worldX: number }[] = []
+  private bgDeco: Phaser.GameObjects.Image[] = []
+
+  private eagles: { img: Phaser.GameObjects.Image; x: number; y: number; hit: boolean }[] = []
+  private eagleSpawnTimer  = 0
+  private eagleNextSpawn   = 4000   // ms until first eagle
+  private readonly EAGLE_RADIUS = 55
+  private readonly EAGLE_W = 165
+  private readonly EAGLE_H = 135
+  private level = 1
+  private primedTraps  = new Map<string, Phaser.Tweens.Tween>()  // id → pulse tween
+  private flingedTraps = new Set<string>()                        // ids already flung
 
   // UI
   private gapBar!: Phaser.GameObjects.Graphics
@@ -52,7 +73,7 @@ export class BeeScrollerScene extends Phaser.Scene {
   private prevHulk = false
   private gameEnded = false
   private catcherSwinging = false
-  private lastObstacleHit = ''
+  private lastObstacleHit = new Set<string>()
   private lastTrapHit = ''
   private levelSeed = 0
   private pendingTrapHit = ''   // trap id about to be triggered (proximity check)
@@ -79,16 +100,24 @@ export class BeeScrollerScene extends Phaser.Scene {
     this.gameEnded = false
     this.prevHulk = false
     this.catcherSwinging = false
-    this.lastObstacleHit = ''
+    this.lastObstacleHit = new Set<string>()
     this.lastTrapHit = ''
+    this.eagles.forEach(e => e.img.destroy())
+    this.eagles = []
+    this.eagleSpawnTimer = 0
+    this.eagleNextSpawn  = 4000
+    this.primedTraps.clear()
+    this.flingedTraps.clear()
 
     this.beeCurrentY = 325
     this.beeTargetY  = 325
     this.beeVelY     = 0
     this.pendingTrapHit = ''
     this.prevHulkTimer  = 0
+    const data = this.sys.settings.data as { level?: number } | undefined
+    this.level = data?.level ?? 1
     this.levelSeed = Math.floor(Math.random() * 99999)
-    this.state = createInitialState(this.levelSeed)
+    this.state = createInitialState(this.levelSeed, this.level)
 
     this.setupBackground()
     this.setupWorldObjects()
@@ -133,22 +162,24 @@ export class BeeScrollerScene extends Phaser.Scene {
       hills.fillEllipse(x, GROUND_Y + 20, 300, 120)
     }
 
-    // Decorative background: alternating sunflowers and fence posts
-    const decoSpacing = 150
-    const decoCount = Math.ceil(width / decoSpacing) + 3
+    // Trees at fixed world positions — same parallax layer as beehive/lamp/web/vine
+    this.treeSprites = []
+    for (const wx of TREE_WORLD_XS) {
+      const img = this.add.image(this.worldToScreen(wx), GROUND_Y + 40, 'bs-tree')
+        .setOrigin(0.5, 1).setAlpha(0.95).setDepth(2).setDisplaySize(320, 560)
+      this.treeSprites.push({ img, worldX: wx })
+    }
+
+    // Wrapping bg deco (fence + sunflower) at slower parallax
+    this.bgDeco = []
+    const decoSpacing = 180
+    const decoCount = Math.ceil(width / decoSpacing) + 4
     for (let i = 0; i < decoCount; i++) {
       const x = i * decoSpacing
-      if (i % 3 === 1) {
-        // Fence post pair
-        const fence = this.add.image(x, GROUND_Y - 2, 'bs-fence')
-          .setOrigin(0.5, 1).setAlpha(0.75).setScale(0.85)
-        this.treeDeco.push(fence)
-      } else {
-        // Decorative sunflower (background — small, slightly transparent)
-        const sf = this.add.image(x, GROUND_Y, 'bs-sunflower-deco')
-          .setOrigin(0.5, 1).setAlpha(0.65).setScale(0.7 + (i % 4) * 0.1)
-        this.treeDeco.push(sf)
-      }
+      const img = i % 2 === 0
+        ? this.add.image(x, GROUND_Y, 'bs-sunflower-deco').setOrigin(0.5, 1).setAlpha(0.8).setDepth(1).setScale(0.9 + (i % 3) * 0.1)
+        : this.add.image(x, GROUND_Y, 'bs-fence').setOrigin(0.5, 1).setAlpha(0.9).setDepth(1)
+      this.bgDeco.push(img)
     }
 
     // Bright green grass strip
@@ -178,8 +209,6 @@ export class BeeScrollerScene extends Phaser.Scene {
       if (obj.type === 'hive') {
         const img = this.add.image(0, OBJ_HEIGHTS[obj.type], 'bs-hive')
           .setOrigin(0.5, 1).setDepth(3)
-        const sign = this.add.image(0, OBJ_HEIGHTS[obj.type] - 148, 'bs-sign')
-          .setOrigin(0.5, 1).setDepth(3)
         // Animate hive glow
         this.tweens.add({ targets: [img], alpha: 0.85, yoyo: true, repeat: -1, duration: 800 })
         this.worldSprites.push({ obj: this.state.worldObjects.find(o => o.id === obj.id)!, image: img })
@@ -189,6 +218,10 @@ export class BeeScrollerScene extends Phaser.Scene {
       const key = this.getTextureKey(obj.type)
       const img = this.add.image(0, OBJ_HEIGHTS[obj.type], key)
         .setOrigin(0.5, 1).setDepth(3)
+
+      // Explicit display sizes / orientations
+      if (obj.type === 'obstacle-snake') img.setDisplaySize(160, 140)
+      if (obj.type === 'trap-board') img.setAngle(90)  // stand upright like a fence plank
 
       // Glow only for traps and honey (interactive) — obstacles have no glow/hints
       let glow: Phaser.GameObjects.Graphics | undefined
@@ -225,7 +258,7 @@ export class BeeScrollerScene extends Phaser.Scene {
   private getTextureKey(type: WorldObjectType): string {
     const map: Record<WorldObjectType, string> = {
       'obstacle-flower': 'bs-flower', 'obstacle-web': 'bs-web',
-      'obstacle-branch': 'bs-branch', 'obstacle-mushroom': 'bs-mushroom',
+      'obstacle-snake': 'bs-snake', 'obstacle-mushroom': 'bs-mushroom',
       'obstacle-thorns': 'bs-thorns', 'obstacle-lantern': 'bs-lantern',
       'honey': 'bs-honey',
       'trap-rock': 'bs-rock', 'trap-board': 'bs-board',
@@ -235,10 +268,11 @@ export class BeeScrollerScene extends Phaser.Scene {
   }
 
   private getObjHeight(type: WorldObjectType): number {
+    // Half the display height — used for glow center and label offset
     const heights: Partial<Record<WorldObjectType, number>> = {
-      'obstacle-flower': 110, 'obstacle-web': 100, 'obstacle-branch': 55,
-      'obstacle-mushroom': 100, 'obstacle-thorns': 80, 'obstacle-lantern': 145,
-      'honey': 80, 'trap-rock': 58, 'trap-board': 40, 'trap-vine': 130,
+      'obstacle-flower': 100, 'obstacle-web': 50, 'obstacle-snake': 70,
+      'obstacle-mushroom': 55, 'obstacle-thorns': 30, 'obstacle-lantern': 80,
+      'honey': 50, 'trap-rock': 28, 'trap-board': 43, 'trap-vine': 65,
     }
     return heights[type] ?? 80
   }
@@ -333,7 +367,9 @@ export class BeeScrollerScene extends Phaser.Scene {
     const sprite = this.worldSprites.find(s => s.obj.id === objId)
     if (!sprite) return
     const obj = this.state.worldObjects.find(o => o.id === objId)
-    if (!obj || obj.activated || obj.passedByBee) return
+    if (!obj || obj.activated) return
+    // Honey must be ahead of the bee; traps can be activated even after bee passes them
+    if (obj.type === 'honey' && obj.passedByBee) return
 
     if (obj.type === 'honey' && !this.state.isHulk) {
       // Activate hulk
@@ -345,32 +381,102 @@ export class BeeScrollerScene extends Phaser.Scene {
       this.time.delayedCall(1500, () => this.statusText.setText(''))
 
     } else if (isTrap(obj.type) && this.state.isHulk) {
-      // Set trap
+      // ── Phase 1: Prime the trap ──────────────────────────────────────────
       this.state.worldObjects = this.state.worldObjects.map(o =>
         o.id === objId ? { ...o, activated: true } : o)
       SoundManager.tokenPlace()
       this.bee.setTrapSet()
-      sprite.image.setTint(0x44FF44)
-      if (sprite.label) { sprite.label.setText('✅ TRAP SET!') }
-      if (sprite.glow) sprite.glow.clear()
 
-      // Drop trap down to the ground path so lumberjack definitely runs into it
-      const groundY = CATCHER_SCREEN_Y + 10   // bottom of sprite sits on the path
-      this.tweens.add({
-        targets: sprite.image,
-        y: groundY,
-        duration: 340,
-        ease: 'Bounce.easeOut',
-        onComplete: () => {
-          // Squish on landing
-          this.tweens.add({ targets: sprite.image, scaleX: 1.3, scaleY: 0.7, duration: 80, yoyo: true })
-          sprite.image.clearTint()
-          sprite.image.setTint(0xFF6600)
-        },
+      // Destroy normal glow; replace with primed pulse on the sprite itself
+      if (sprite.glow) { sprite.glow.destroy(); sprite.glow = undefined }
+      if (sprite.label) sprite.label.setVisible(false)
+      sprite.image.setTint(0xFFEE00)
+      const pulseTween = this.tweens.add({
+        targets: sprite.image, alpha: 0.35, yoyo: true, repeat: -1, duration: 180,
       })
-      this.statusText.setText('🪤 Trap dropped! Catcher won\'t know what hit him!')
+      this.primedTraps.set(objId, pulseTween)
+
+      this.statusText.setText('⚡ Trap primed! Bee will fling it!')
       this.time.delayedCall(1500, () => this.statusText.setText(''))
     }
+  }
+
+  // ── Phase 2: fling when bee reaches primed trap ────────────────────────────
+  private checkTrapFlings(): void {
+    for (const ws of this.worldSprites) {
+      if (!isTrap(ws.obj.type) || this.flingedTraps.has(ws.obj.id)) continue
+      const current = this.state.worldObjects.find(o => o.id === ws.obj.id)
+      if (!current?.activated || !current.passedByBee) continue
+
+      this.flingedTraps.add(ws.obj.id)
+
+      // Stop primed pulse
+      const pt = this.primedTraps.get(ws.obj.id)
+      if (pt) { pt.stop(); this.primedTraps.delete(ws.obj.id) }
+      ws.image.setVisible(false).clearTint().setAlpha(1)
+
+      this.flingTrap(current, ws.image.x)
+    }
+  }
+
+  private flingTrap(obj: WorldObject, startScreenX: number): void {
+    const landY        = CATCHER_SCREEN_Y + 10
+    const targetWorldX = this.state.catcherWorldX + 80
+    const endSx        = this.worldToScreen(this.state.catcherWorldX) + 50
+
+    if (obj.type === 'trap-rock') {
+      const throwImg = this.add.image(startScreenX, GROUND_Y, 'bs-rock')
+        .setDisplaySize(50, 35).setDepth(6)
+      const peakY = landY - 200
+
+      this.tweens.add({ targets: throwImg, x: endSx, duration: 600, ease: 'Linear' })
+      this.tweens.add({ targets: throwImg, angle: 720, duration: 600, ease: 'Linear' })
+      this.tweens.add({
+        targets: throwImg, y: peakY, duration: 300, ease: 'Sine.easeOut',
+        onComplete: () => {
+          this.tweens.add({
+            targets: throwImg, y: landY, duration: 300, ease: 'Bounce.easeIn',
+            onComplete: () => {
+              throwImg.destroy()
+              this.state.worldObjects = this.state.worldObjects.map(o =>
+                o.id === obj.id ? { ...o, worldX: targetWorldX } : o)
+            },
+          })
+        },
+      })
+      this.statusText.setText('🪨 Rock flung at the catcher!')
+
+    } else if (obj.type === 'trap-board') {
+      const catcherY = CATCHER_SCREEN_Y - 80
+      const peakY    = catcherY - 180
+      const throwImg = this.add.image(startScreenX, GROUND_Y, 'bs-board')
+        .setOrigin(0.5, 0.5).setDepth(6).setAngle(90)
+
+      this.tweens.add({ targets: throwImg, x: endSx, duration: 500, ease: 'Linear' })
+      this.tweens.add({ targets: throwImg, angle: 90 + 720, duration: 500, ease: 'Linear' })
+      this.tweens.add({
+        targets: throwImg, y: peakY, duration: 250, ease: 'Sine.easeOut',
+        onComplete: () => {
+          this.tweens.add({
+            targets: throwImg, y: catcherY, duration: 250, ease: 'Bounce.easeIn',
+            onComplete: () => {
+              throwImg.destroy()
+              this.state.worldObjects = this.state.worldObjects.map(o =>
+                o.id === obj.id ? { ...o, worldX: targetWorldX } : o)
+            },
+          })
+        },
+      })
+      this.statusText.setText('🪵 Plank flung at the catcher!')
+
+    } else {
+      // Vine: just vanishes (already hidden above)
+      this.state.worldObjects = this.state.worldObjects.map(o =>
+        o.id === obj.id ? { ...o, worldX: targetWorldX } : o)
+      this.statusText.setText('🪤 Vine trap triggered!')
+    }
+
+    this.time.delayedCall(1500, () => this.statusText.setText(''))
   }
 
   private flashObject(img: Phaser.GameObjects.Image, color = 0xFFFFFF): void {
@@ -412,6 +518,8 @@ export class BeeScrollerScene extends Phaser.Scene {
 
     this.updateCharacterPositions()
     this.updateWorldSprites()
+    this.updateEagles(delta)
+    this.checkTrapFlings()
     this.updateObstacleWarnings()
     this.updateAnimations()
     this.updateUI()
@@ -482,26 +590,72 @@ export class BeeScrollerScene extends Phaser.Scene {
     this.groundTile.tilePositionX = this.state.beeWorldX
     this.clouds.forEach(c => { c.img.tilePositionX += c.speed })
 
-    // Background trees scroll
-    const treeOffset = (this.state.beeWorldX * 0.65) % 140
-    this.treeDeco.forEach((t, i) => {
-      t.x = ((60 + i * 140 - treeOffset + 1400) % (this.scale.width + 200)) - 100
+    // Trees track world positions exactly (same layer as world objects)
+    for (const { img, worldX } of this.treeSprites) {
+      const sx = this.worldToScreen(worldX)
+      img.x = sx
+      img.setVisible(sx > -400 && sx < this.scale.width + 400)
+    }
+
+    // Wrapping bg deco scrolls at 0.65x (slow parallax)
+    const W = this.scale.width + 200
+    this.bgDeco.forEach((d, i) => {
+      const raw = 40 + i * 180 - this.state.beeWorldX * 0.65
+      d.x = (raw % W + W) % W - 100
     })
   }
 
   private updateObstacleWarnings(): void {
     this.obstacleWarningG.clear()
     this.controlHintG.clear()
-    // Hitboxes and hints removed — pure gameplay
+  }
+
+  private updateEagles(delta: number): void {
+    const dt = delta / 1000
+    const speed = this.state.beeSpeed * 2  // 2x world scroll speed
+
+    for (const eagle of this.eagles) {
+      eagle.x -= speed * dt
+      eagle.img.x = eagle.x
+
+      if (!eagle.hit) {
+        const dx = eagle.x - BEE_SCREEN_X
+        const dy = eagle.y - this.beeCurrentY
+        if (Math.sqrt(dx * dx + dy * dy) < this.EAGLE_RADIUS + 22) {
+          eagle.hit = true
+          this.bee.setHurt()
+          this.statusText.setText('🦅 Eagle strike!')
+          this.time.delayedCall(2000, () => this.statusText.setText(''))
+        }
+      }
+    }
+
+    // Remove eagles that flew off screen left
+    this.eagles = this.eagles.filter(e => {
+      if (e.x < -200) { e.img.destroy(); return false }
+      return true
+    })
+
+    // Spawn timer
+    this.eagleSpawnTimer += delta
+    if (this.eagleSpawnTimer >= this.eagleNextSpawn && this.state.phase === 'playing') {
+      this.eagleSpawnTimer = 0
+      this.eagleNextSpawn = 8000 + Math.random() * 6000  // every 8–14 s
+      const y = 60 + Math.random() * 140  // near clouds (y=60–200)
+      const startX = this.scale.width + 100
+      const img = this.add.image(startX, y, 'bs-eagle')
+        .setDisplaySize(this.EAGLE_W, this.EAGLE_H).setDepth(4)
+      this.eagles.push({ img, x: startX, y, hit: false })
+    }
   }
 
   private updateAnimations(): void {
     // Bee just got hurt by obstacle
     const hitObstacle = this.state.worldObjects.find(
-      o => isObstacle(o.type) && o.hitBee && o.id !== this.lastObstacleHit
+      o => isObstacle(o.type) && o.hitBee && !this.lastObstacleHit.has(o.id)
     )
     if (hitObstacle) {
-      this.lastObstacleHit = hitObstacle.id
+      this.lastObstacleHit.add(hitObstacle.id)
       this.bee.setHurt()
       this.statusText.setText('🌸 Bee hit the obstacle! Catcher is gaining!')
       this.time.delayedCall(2000, () => this.statusText.setText(''))
@@ -509,10 +663,10 @@ export class BeeScrollerScene extends Phaser.Scene {
 
     // Show "dodged!" feedback
     const justDodged = this.state.worldObjects.find(
-      o => isObstacle(o.type) && o.dodged && !o.hitBee && o.passedByBee && o.id !== this.lastObstacleHit
+      o => isObstacle(o.type) && o.dodged && !o.hitBee && o.passedByBee && !this.lastObstacleHit.has(o.id)
     )
     if (justDodged) {
-      this.lastObstacleHit = justDodged.id
+      this.lastObstacleHit.add(justDodged.id)
       this.statusText.setText('✨ Nice dodge! Gap stays wide!')
       this.time.delayedCall(1500, () => this.statusText.setText(''))
     }

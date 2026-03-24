@@ -2,11 +2,36 @@ import Phaser from 'phaser'
 import { Colors } from '../shared/assets/ColorPalette'
 import { bakeParticleDot } from '../shared/assets/ParticlePresets'
 import { bakeTexture } from '../shared/assets/TextureFactory'
-import { registerBeeScrollerAssets } from '../games/beescroller/BeeScrollerAssets'
-
 export class PreloadScene extends Phaser.Scene {
   constructor() {
     super({ key: 'PreloadScene' })
+  }
+
+  preload(): void {
+    this.load.image('bs-bee1',          'assets/beescroller/bee1.png')
+    this.load.image('bs-bee2',          'assets/beescroller/bee2.png')
+    this.load.image('bs-hulk1',         'assets/beescroller/hulk1.png')
+    this.load.image('bs-hulk2',         'assets/beescroller/hulk2.png')
+    this.load.image('bs-lumberjack1',   'assets/beescroller/lumberjack1.png')
+    this.load.image('bs-lumberjack2',   'assets/beescroller/lumberjack2.png')
+    this.load.image('bs-lumberjack3',   'assets/beescroller/lumberjack3.png')
+    this.load.image('bs-ground',        'assets/beescroller/ground.png')
+    this.load.image('bs-cloud',         'assets/beescroller/cloud.png')
+    this.load.image('bs-fence',         'assets/beescroller/fence.png')
+    this.load.image('bs-sunflower-deco','assets/beescroller/sunflower-deco.png')
+    this.load.image('bs-flower',        'assets/beescroller/flower.png')
+    this.load.image('bs-web',           'assets/beescroller/web.png')
+    this.load.image('bs-snake',         'assets/beescroller/snake.png')
+    this.load.image('bs-eagle',         'assets/beescroller/eagle.png')
+    this.load.image('bs-mushroom',      'assets/beescroller/mushroom.png')
+    this.load.image('bs-thorns',        'assets/beescroller/thorns.png')
+    this.load.image('bs-lantern',       'assets/beescroller/lantern.png')
+    this.load.image('bs-honey',         'assets/beescroller/honey.png')
+    this.load.image('bs-rock',          'assets/beescroller/rock.png')
+    this.load.image('bs-board',         'assets/beescroller/board.png')
+    this.load.image('bs-vine',          'assets/beescroller/vine.png')
+    this.load.image('bs-hive',          'assets/beescroller/beehive.png')
+    this.load.image('bs-tree',          'assets/beescroller/tree.png')
   }
 
   create(): void {
@@ -55,7 +80,6 @@ export class PreloadScene extends Phaser.Scene {
       () => this.bakeTicTacToeAssets(),
       () => this.bakeButtonTexture(),
       () => this.bakeHubCard(),
-      () => registerBeeScrollerAssets(this),
     ]
 
     let done = 0

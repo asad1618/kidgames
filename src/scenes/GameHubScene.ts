@@ -50,7 +50,7 @@ export class GameHubScene extends Phaser.Scene {
     GAME_REGISTRY.forEach((game, i) => {
       const cx = startX + i * spacing
       const cy = height / 2 + 20
-      this.createGameCard(cx, cy, cardW, cardH, game.title, game.description, game.emoji, game.hubColor, game.sceneKey)
+      this.createGameCard(cx, cy, cardW, cardH, game.title, game.description, game.emoji, game.hubColor, game.sceneKey, game.logoKey)
     })
 
     // Version footer
@@ -68,7 +68,8 @@ export class GameHubScene extends Phaser.Scene {
     description: string,
     emoji: string,
     color: number,
-    sceneKey: string
+    sceneKey: string,
+    logoKey?: string
   ): void {
     const container = this.add.container(x, y).setDepth(2)
 
@@ -80,10 +81,10 @@ export class GameHubScene extends Phaser.Scene {
     accentBar.fillStyle(color, 1)
     accentBar.fillRoundedRect(-w / 2, -h / 2, w, 8, { tl: 24, tr: 24, bl: 0, br: 0 })
 
-    // Emoji icon (large)
-    const emojiText = this.add.text(0, -60, emoji, {
-      fontSize: '72px',
-    }).setOrigin(0.5)
+    // Icon: image if logoKey provided, otherwise emoji
+    const icon = logoKey
+      ? this.add.image(0, -60, logoKey).setDisplaySize(90, 90).setOrigin(0.5)
+      : this.add.text(0, -60, emoji, { fontSize: '72px' }).setOrigin(0.5)
 
     // Game title
     const titleText = this.add.text(0, 50, title, {
@@ -116,7 +117,7 @@ export class GameHubScene extends Phaser.Scene {
       color: '#FFFFFF',
     }).setOrigin(0.5)
 
-    container.add([card, accentBar, emojiText, titleText, descText, playBtnBg, playText])
+    container.add([card, accentBar, icon, titleText, descText, playBtnBg, playText])
     container.setSize(w, h)
     container.setInteractive({ useHandCursor: true })
 

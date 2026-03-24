@@ -6,4 +6,5 @@ export interface GameManifest {
   hubColor: number
   accentColor: number
   emoji: string
+  logoKey?: string   // optional texture key — replaces emoji with a sprite on the hub card
 }

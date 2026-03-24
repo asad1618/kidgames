@@ -18,5 +18,6 @@ export const GAME_REGISTRY: GameManifest[] = [
     hubColor: 0xFFAA00,
     accentColor: 0x4ECDC4,
     emoji: '🐝',
+    logoKey: 'bs-bee1',
   },
 ]
