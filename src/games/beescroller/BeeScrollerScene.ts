@@ -516,6 +516,12 @@ export class BeeScrollerScene extends Phaser.Scene {
     if (this.state.phase === 'caught') { this.handleCatch(); return }
     if (this.state.phase === 'won')    { this.handleWin();   return }
 
+    if (this.state.hulkRepelEvent) {
+      this.catcher.setHurt()
+      this.statusText.setText('💪 Hulk Bee repels the catcher!')
+      this.time.delayedCall(2000, () => this.statusText.setText(''))
+    }
+
     this.updateCharacterPositions()
     this.updateWorldSprites()
     this.updateEagles(delta)

@@ -2,7 +2,7 @@
 export const BEE_NORMAL_SPEED        = 125   // px/s
 export const BEE_SLOWED_SPEED        = 38    // px/s during obstacle hit
 export const BEE_HULK_SPEED          = 158   // px/s while hulk
-export const CATCHER_NORMAL_SPEED    = 140   // px/s (faster than bee — gap closes steadily)
+export const CATCHER_NORMAL_SPEED    = 150   // px/s (faster than bee — gap closes steadily)
 export const CATCHER_SLOWED_SPEED    = 50    // px/s after knockback ends
 export const CATCHER_KNOCKBACK_SPEED = -95   // px/s — flies backward on trap hit
 export const CATCH_THRESHOLD         = 115   // px gap → trigger catch
@@ -47,6 +47,7 @@ export interface BeeScrollerState {
   worldObjects: WorldObject[]
   catchTimer: number
   beeSlowedSpeed: number  // level-dependent: BEE_NORMAL_SPEED * (1 - level*0.05)
+  hulkRepelEvent: boolean // fired once when hulk bee repels the catcher
 }
 
 // ── World layout ──────────────────────────────────────────────────────────────
@@ -189,6 +190,7 @@ export function createInitialState(seed?: number, level = 1): BeeScrollerState {
     catcherKnockbackTimer: 0,
     phase: 'playing',
     catchTimer: 0,
+    hulkRepelEvent: false,
     beeSlowedSpeed,
     worldObjects: objects.map(o => ({
       ...o, activated: false, passedByBee: false,
@@ -288,11 +290,23 @@ export function updateState(state: BeeScrollerState, deltaMs: number): BeeScroll
   })
 
   // ── Catch check ───────────────────────────────────────────────────────────
+  s.hulkRepelEvent = false
   const gap = s.beeWorldX - s.catcherWorldX
   if (gap <= CATCH_THRESHOLD && s.phase === 'playing') {
-    s.catchTimer += deltaMs
-    if (s.catchTimer > 800) {  // faster catch — 0.8s of contact = caught
-      s.phase = 'caught'
+    if (s.isHulk) {
+      // Hulk bee repels the catcher — trigger knockback, cannot catch
+      if (s.catcherKnockbackTimer === 0) {
+        s.hulkRepelEvent = true
+        s.catcherKnockbackTimer = CATCHER_KNOCKBACK_DUR
+        s.catcherSlowTimer = CATCHER_SLOW_DUR
+        s.catcherSpeed = CATCHER_KNOCKBACK_SPEED
+      }
+      s.catchTimer = 0
+    } else {
+      s.catchTimer += deltaMs
+      if (s.catchTimer > 800) {  // faster catch — 0.8s of contact = caught
+        s.phase = 'caught'
+      }
     }
   } else {
     s.catchTimer = 0
