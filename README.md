@@ -10,7 +10,7 @@ A multi-game platform for kids, running in the browser and as an iPad app.
 | Language | TypeScript 5 |
 | Build Tool | Vite 8 |
 | iPad App | Capacitor 8 (WKWebView) |
-| Art | Procedural (Phaser Graphics → RenderTexture) |
+| Art | Bing |
 | Audio | Web Audio API oscillators |
 
 **No external images. No audio files. 100% code-generated assets.**
