@@ -11,6 +11,7 @@ import {
   type BeeScrollerState, type WorldObject, type WorldObjectType,
   CATCH_THRESHOLD, CATCHER_NORMAL_SPEED, MAX_GAP, TREE_WORLD_XS,
 } from './BeeScrollerLogic'
+import { BEESCROLLER_THEME_COUNT } from '../../resources/index'
 
 // Screen layout constants
 const BEE_SCREEN_X  = 500   // bee's fixed screen X (centre-ish, room for catcher on left)
@@ -60,6 +61,7 @@ export class BeeScrollerScene extends Phaser.Scene {
   private readonly EAGLE_W = 165
   private readonly EAGLE_H = 135
   private level = 1
+  private theme = 1
   private primedTraps  = new Map<string, Phaser.Tweens.Tween>()  // id → pulse tween
   private flingedTraps = new Set<string>()                        // ids already flung
 
@@ -116,6 +118,7 @@ export class BeeScrollerScene extends Phaser.Scene {
     this.prevHulkTimer  = 0
     const data = this.sys.settings.data as { level?: number } | undefined
     this.level = data?.level ?? 1
+    this.theme = ((this.level - 1) % BEESCROLLER_THEME_COUNT) + 1
     this.levelSeed = Math.floor(Math.random() * 99999)
     this.state = createInitialState(this.levelSeed, this.level)
 
@@ -145,7 +148,7 @@ export class BeeScrollerScene extends Phaser.Scene {
     const cloudY  = [65, 120, 50, 100]
     const cloudSp = [0.22, 0.32, 0.18, 0.28]
     for (let i = 0; i < 4; i++) {
-      const ts = this.add.tileSprite(0, cloudY[i], width * 3, 80, 'bs-cloud')
+      const ts = this.add.tileSprite(0, cloudY[i], width * 3, 80, this.tk('bs-cloud'))
         .setOrigin(0, 0).setAlpha(0.88)
       this.clouds.push({ img: ts, speed: cloudSp[i] })
     }
@@ -165,7 +168,7 @@ export class BeeScrollerScene extends Phaser.Scene {
     // Trees at fixed world positions — same parallax layer as beehive/lamp/web/vine
     this.treeSprites = []
     for (const wx of TREE_WORLD_XS) {
-      const img = this.add.image(this.worldToScreen(wx), GROUND_Y + 40, 'bs-tree')
+      const img = this.add.image(this.worldToScreen(wx), GROUND_Y + 40, this.tk('bs-tree'))
         .setOrigin(0.5, 1).setAlpha(0.95).setDepth(2).setDisplaySize(320, 560)
       this.treeSprites.push({ img, worldX: wx })
     }
@@ -177,7 +180,7 @@ export class BeeScrollerScene extends Phaser.Scene {
     for (let i = 0; i < decoCount; i++) {
       const x = i * decoSpacing
       const img = i % 2 === 0
-        ? this.add.image(x, GROUND_Y, 'bs-sunflower-deco').setOrigin(0.5, 1).setAlpha(0.8).setDepth(1).setScale(0.9 + (i % 3) * 0.1)
+        ? this.add.image(x, GROUND_Y, this.tk('bs-sunflower-deco')).setOrigin(0.5, 1).setAlpha(0.8).setDepth(1).setScale(0.9 + (i % 3) * 0.1)
         : this.add.image(x, GROUND_Y, 'bs-fence').setOrigin(0.5, 1).setAlpha(0.9).setDepth(1)
       this.bgDeco.push(img)
     }
@@ -194,7 +197,7 @@ export class BeeScrollerScene extends Phaser.Scene {
     }
 
     // Ground tile (dirt path)
-    this.groundTile = this.add.tileSprite(0, GROUND_Y, width * 2, 140, 'bs-ground')
+    this.groundTile = this.add.tileSprite(0, GROUND_Y, width * 2, 140, this.tk('bs-ground'))
       .setOrigin(0, 0)
 
     // Dirt path edge line
@@ -255,14 +258,24 @@ export class BeeScrollerScene extends Phaser.Scene {
     }
   }
 
+  // Returns a themed texture key (t = theme number)
+  private tk(base: string): string {
+    return `${base}-t${this.theme}`
+  }
+
   private getTextureKey(type: WorldObjectType): string {
     const map: Record<WorldObjectType, string> = {
-      'obstacle-flower': 'bs-flower', 'obstacle-web': 'bs-web',
-      'obstacle-snake': 'bs-snake', 'obstacle-mushroom': 'bs-mushroom',
-      'obstacle-thorns': 'bs-thorns', 'obstacle-lantern': 'bs-lantern',
-      'honey': 'bs-honey',
-      'trap-rock': 'bs-rock', 'trap-board': 'bs-board',
-      'trap-vine': 'bs-vine', 'hive': 'bs-hive',
+      'obstacle-flower':   this.tk('bs-flower'),
+      'obstacle-web':      'bs-web',
+      'obstacle-snake':    'bs-snake',
+      'obstacle-mushroom': this.tk('bs-mushroom'),
+      'obstacle-thorns':   this.tk('bs-thorns'),
+      'obstacle-lantern':  'bs-lantern',
+      'honey':             'bs-honey',
+      'trap-rock':         'bs-rock',
+      'trap-board':        'bs-board',
+      'trap-vine':         this.tk('bs-vine'),
+      'hive':              'bs-hive',
     }
     return map[type]
   }
@@ -809,15 +822,24 @@ export class BeeScrollerScene extends Phaser.Scene {
     this.tweens.add({ targets: banner, scaleX: 1, scaleY: 1, duration: 400, ease: 'Back.easeOut' })
 
     this.time.delayedCall(800, () => {
+      if (isWin) {
+        new Button(this, {
+          x: width / 2 - 210, y: height / 2 + 80,
+          width: 180, height: 52, label: '▶ Next Level',
+          fillColor: Colors.gold, fontSize: 21, depth: 32,
+        })
+          .on('pointerup', () => this.scene.start('BeeScrollerScene', { level: this.level + 1 }))
+      }
+
       new Button(this, {
-        x: width / 2 - 140, y: height / 2 + 80,
+        x: isWin ? width / 2 : width / 2 - 140, y: height / 2 + 80,
         width: 200, height: 52, label: '↺ Play Again',
         fillColor: Colors.green, fontSize: 21, depth: 32,
       })
         .on('pointerup', () => this.scene.restart())
 
       new Button(this, {
-        x: width / 2 + 140, y: height / 2 + 80,
+        x: isWin ? width / 2 + 210 : width / 2 + 140, y: height / 2 + 80,
         width: 200, height: 52, label: '🏠 Menu',
         fillColor: Colors.navyLight, fontSize: 21, depth: 32,
       })

@@ -2,38 +2,44 @@ import Phaser from 'phaser'
 import { Colors } from '../shared/assets/ColorPalette'
 import { bakeParticleDot } from '../shared/assets/ParticlePresets'
 import { bakeTexture } from '../shared/assets/TextureFactory'
-import { BeeScrollerImages } from '../resources/index'
+import { BeeScrollerImages, BeeScrollerThemes, BEESCROLLER_THEME_COUNT } from '../resources/index'
 export class PreloadScene extends Phaser.Scene {
   constructor() {
     super({ key: 'PreloadScene' })
   }
 
   preload(): void {
-    this.load.image('bs-bee1',          BeeScrollerImages.bee1)
-    this.load.image('bs-bee2',          BeeScrollerImages.bee2)
-    this.load.image('bs-hulk1',         BeeScrollerImages.hulk1)
-    this.load.image('bs-hulk2',         BeeScrollerImages.hulk2)
-    this.load.image('bs-lumberjack1',   BeeScrollerImages.lumberjack1)
-    this.load.image('bs-lumberjack2',   BeeScrollerImages.lumberjack2)
-    this.load.image('bs-lumberjack3',   BeeScrollerImages.lumberjack3)
-    this.load.image('bs-ground',        BeeScrollerImages.ground)
-    this.load.image('bs-cloud',         BeeScrollerImages.cloud)
-    this.load.image('bs-fence',         BeeScrollerImages.fence)
-    this.load.image('bs-sunflower-deco',BeeScrollerImages.sunflowerDeco)
-    this.load.image('bs-flower',        BeeScrollerImages.flower)
-    this.load.image('bs-web',           BeeScrollerImages.web)
-    this.load.image('bs-snake',         BeeScrollerImages.snake)
-    this.load.image('bs-eagle',         BeeScrollerImages.eagle)
-    this.load.image('bs-mushroom',      BeeScrollerImages.mushroom)
-    this.load.image('bs-thorns',        BeeScrollerImages.thorns)
-    this.load.image('bs-lantern',       BeeScrollerImages.lantern)
-    this.load.image('bs-honey',         BeeScrollerImages.honey)
-    this.load.image('bs-rock',          BeeScrollerImages.rock)
-    this.load.image('bs-board',         BeeScrollerImages.board)
-    this.load.image('bs-vine',          BeeScrollerImages.vine)
-    this.load.image('bs-hive',          BeeScrollerImages.beehive)
-    this.load.image('bs-tree',          BeeScrollerImages.tree)
-    this.load.image('bs-branch',        BeeScrollerImages.branch)
+    // Base (non-themed) images
+    this.load.image('bs-bee1',        BeeScrollerImages.bee1)
+    this.load.image('bs-bee2',        BeeScrollerImages.bee2)
+    this.load.image('bs-hulk1',       BeeScrollerImages.hulk1)
+    this.load.image('bs-hulk2',       BeeScrollerImages.hulk2)
+    this.load.image('bs-lumberjack1', BeeScrollerImages.lumberjack1)
+    this.load.image('bs-lumberjack2', BeeScrollerImages.lumberjack2)
+    this.load.image('bs-lumberjack3', BeeScrollerImages.lumberjack3)
+    this.load.image('bs-fence',       BeeScrollerImages.fence)
+    this.load.image('bs-web',         BeeScrollerImages.web)
+    this.load.image('bs-snake',       BeeScrollerImages.snake)
+    this.load.image('bs-eagle',       BeeScrollerImages.eagle)
+    this.load.image('bs-lantern',     BeeScrollerImages.lantern)
+    this.load.image('bs-honey',       BeeScrollerImages.honey)
+    this.load.image('bs-rock',        BeeScrollerImages.rock)
+    this.load.image('bs-board',       BeeScrollerImages.board)
+    this.load.image('bs-hive',        BeeScrollerImages.beehive)
+    this.load.image('bs-branch',      BeeScrollerImages.branch)
+
+    // Themed images — loaded per theme number
+    for (let t = 1; t <= BEESCROLLER_THEME_COUNT; t++) {
+      const theme = BeeScrollerThemes[t]
+      this.load.image(`bs-cloud-t${t}`,         theme.cloud)
+      this.load.image(`bs-flower-t${t}`,        theme.flower)
+      this.load.image(`bs-ground-t${t}`,        theme.ground)
+      this.load.image(`bs-mushroom-t${t}`,      theme.mushroom)
+      this.load.image(`bs-sunflower-deco-t${t}`,theme.sunflowerDeco)
+      this.load.image(`bs-thorns-t${t}`,        theme.thorns)
+      this.load.image(`bs-tree-t${t}`,          theme.tree)
+      this.load.image(`bs-vine-t${t}`,          theme.vine)
+    }
   }
 
   create(): void {
