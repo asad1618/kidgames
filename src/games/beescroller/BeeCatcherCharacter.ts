@@ -64,7 +64,7 @@ export class BeeCatcherCharacter extends Phaser.GameObjects.Container {
     this.frameTimer?.remove(false)
     this.frameTimer = undefined
     this.currentFps = 0
-    this.lumberjackImg?.setTexture('bs-lumberjack1')
+    this.lumberjackImg?.setTexture('bs-lumberjack1').setDisplaySize(this.W, this.H)
   }
 
   // ── Run tweens ─────────────────────────────────────────────────────────────

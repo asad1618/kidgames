@@ -103,30 +103,54 @@ export class BeeCharacter extends Phaser.GameObjects.Container {
 
   setHulk(): void {
     this._isHulk = true
+    this.beeImg.clearTint()
+    this.fxG.clear()
     this.animState = 'transform-hulk'
-    this.scene.tweens.add({
-      targets: this.innerBody, scaleX: 1.3, scaleY: 1.3,
-      duration: 250, yoyo: true, ease: 'Back.easeOut',
-      onComplete: () => {
-        this.animState = 'hulk'
-        this.beeImg.setTexture('bs-hulk1').setDisplaySize(this.HULK_W, this.HULK_H)
-        this.startFrameAnim(HULK_FRAMES)
-        this.scene.cameras.main.flash(400, 0, 220, 0)
+    this.stopFrameAnim()
+
+    let step = 0
+    this.scene.time.addEvent({
+      delay: 100,
+      repeat: 9,
+      callback: () => {
+        step++
+        const hulk = step % 2 === 1
+        this.beeImg
+          .setTexture(hulk ? 'bs-hulk1' : 'bs-bee1')
+          .setDisplaySize(hulk ? this.HULK_W : this.NORMAL_W, hulk ? this.HULK_H : this.NORMAL_H)
+        if (step === 10) {
+          this.animState = 'hulk'
+          this.beeImg.setTexture('bs-hulk1').setDisplaySize(this.HULK_W, this.HULK_H)
+          this.startFrameAnim(HULK_FRAMES)
+          this.scene.cameras.main.flash(400, 0, 220, 0)
+        }
       },
     })
   }
 
   revertNormal(): void {
     this._isHulk = false
+    this.beeImg.clearTint()
+    this.fxG.clear()
     this.animState = 'revert'
-    this.scene.cameras.main.flash(300, 255, 200, 0)
-    this.scene.tweens.add({
-      targets: this.innerBody, scaleX: 0.8, scaleY: 0.8,
-      duration: 200, yoyo: true, ease: 'Bounce.easeOut',
-      onComplete: () => {
-        this.animState = 'fly'
-        this.beeImg.setTexture('bs-bee1').setDisplaySize(this.NORMAL_W, this.NORMAL_H)
-        this.startFrameAnim(FLY_FRAMES)
+    this.stopFrameAnim()
+
+    let step = 0
+    this.scene.time.addEvent({
+      delay: 100,
+      repeat: 9,
+      callback: () => {
+        step++
+        const bee = step % 2 === 1
+        this.beeImg
+          .setTexture(bee ? 'bs-bee1' : 'bs-hulk1')
+          .setDisplaySize(bee ? this.NORMAL_W : this.HULK_W, bee ? this.NORMAL_H : this.HULK_H)
+        if (step === 10) {
+          this.animState = 'fly'
+          this.beeImg.setTexture('bs-bee1').setDisplaySize(this.NORMAL_W, this.NORMAL_H)
+          this.startFrameAnim(FLY_FRAMES)
+          this.scene.cameras.main.flash(300, 255, 200, 0)
+        }
       },
     })
   }
@@ -177,4 +201,5 @@ export class BeeCharacter extends Phaser.GameObjects.Container {
   }
 
   get isHulk(): boolean { return this._isHulk }
+  get isTransitioning(): boolean { return this.animState === 'transform-hulk' || this.animState === 'revert' }
 }

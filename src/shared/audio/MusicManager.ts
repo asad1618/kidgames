@@ -145,6 +145,72 @@ function fadeTo(volume: number, durationSec = 0.4): void {
   masterGain.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + durationSec)
 }
 
+// ── Transition stingers (one-shot, ~1 second) ─────────────────────────────────
+// Each entry: [freq, startMs, durMs, wave, vol]
+type StingerNote = [number, number, number, OscillatorType, number]
+
+// To-Hulk: rapid ascending sawtooth arpeggio → power chord
+const TO_HULK_STINGER: StingerNote[] = [
+  [N.C4,   0,  80, 'sawtooth', 0.20],
+  [N.E4,  80,  80, 'sawtooth', 0.22],
+  [N.G4, 160,  80, 'sawtooth', 0.24],
+  [N.C5, 240,  80, 'sawtooth', 0.26],
+  [N.E5, 320,  80, 'sawtooth', 0.28],
+  [N.G5, 400,  80, 'sawtooth', 0.30],
+  // Power chord hit
+  [N.C5, 500, 480, 'square',   0.18],
+  [N.G5, 500, 480, 'square',   0.18],
+  // Kick thumps
+  [80,   500,  90, 'sine',     0.40],
+  [80,   650,  90, 'sine',     0.35],
+  [80,   800,  90, 'sine',     0.30],
+]
+
+// To-Normal: descending sine scale → resolving chord
+const TO_NORMAL_STINGER: StingerNote[] = [
+  [N.G5,   0,  90, 'sine', 0.22],
+  [N.E5, 110,  90, 'sine', 0.21],
+  [N.C5, 220,  90, 'sine', 0.20],
+  [N.A4, 330,  90, 'sine', 0.19],
+  [N.F4, 440,  90, 'sine', 0.18],
+  [N.D4, 550,  90, 'sine', 0.17],
+  // Resolved chord
+  [N.C4, 660, 340, 'triangle', 0.16],
+  [N.E4, 660, 340, 'triangle', 0.14],
+  [N.G4, 660, 340, 'triangle', 0.12],
+]
+
+function playStinger(notes: StingerNote[]): void {
+  const ctx = getCtx()
+  const now = ctx.currentTime
+  // Use a dedicated gain node connected directly to destination,
+  // bypassing masterGain so the fade-out doesn't silence the stinger.
+  const stingerGain = ctx.createGain()
+  stingerGain.gain.value = 1
+  stingerGain.connect(ctx.destination)
+  for (const [freq, startMs, durMs, wave, vol] of notes) {
+    if (freq <= 0) continue
+    const osc  = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(stingerGain)
+    osc.type = wave
+    osc.frequency.value = freq
+    const t = now + startMs / 1000
+    const attack = 0.015
+    const release = Math.min(0.08, (durMs / 1000) * 0.3)
+    gain.gain.setValueAtTime(0, t)
+    gain.gain.linearRampToValueAtTime(vol, t + attack)
+    gain.gain.setValueAtTime(vol, t + durMs / 1000 - release)
+    gain.gain.linearRampToValueAtTime(0, t + durMs / 1000)
+    osc.start(t)
+    osc.stop(t + durMs / 1000 + 0.01)
+  }
+  // Auto-disconnect stingerGain after all notes finish (last note end + buffer)
+  const totalMs = Math.max(...notes.map(([,s,d]) => s + d))
+  setTimeout(() => stingerGain.disconnect(), totalMs + 200)
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export const MusicManager = {
   playNormal(): void {
@@ -158,7 +224,6 @@ export const MusicManager = {
   playHulk(): void {
     if (mode === 'hulk') return
     getCtx()
-    // Cross-fade: fade out current, restart scheduler in hulk mode
     fadeTo(0, 0.25)
     setTimeout(() => {
       mode = 'hulk'
@@ -175,6 +240,32 @@ export const MusicManager = {
       startScheduler()
       fadeTo(1, 0.4)
     }, 350)
+  },
+
+  /** Fade out current music, play ascending stinger, then start hulk music. */
+  playTransitionToHulk(): void {
+    getCtx()
+    fadeTo(0, 0.08)
+    stopScheduler()
+    playStinger(TO_HULK_STINGER)
+    setTimeout(() => {
+      mode = 'hulk'
+      startScheduler()
+      fadeTo(1, 0.3)
+    }, 950)
+  },
+
+  /** Fade out current music, play descending stinger, then start normal music. */
+  playTransitionToNormal(): void {
+    getCtx()
+    fadeTo(0, 0.08)
+    stopScheduler()
+    playStinger(TO_NORMAL_STINGER)
+    setTimeout(() => {
+      mode = 'normal'
+      startScheduler()
+      fadeTo(1, 0.4)
+    }, 950)
   },
 
   stop(): void {

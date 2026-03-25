@@ -16,7 +16,7 @@ export const INITIAL_GAP             = 500   // starting gap px — catcher at l
 export type WorldObjectType =
   | 'obstacle-flower' | 'obstacle-web' | 'obstacle-snake'
   | 'obstacle-mushroom' | 'obstacle-thorns' | 'obstacle-lantern'
-  | 'honey' | 'trap-rock' | 'trap-board' | 'trap-vine' | 'hive'
+  | 'honey' | 'trap-rock' | 'trap-board' | 'hive'
 
 export interface WorldObject {
   id: string
@@ -57,7 +57,7 @@ const OBSTACLE_TYPES: WorldObjectType[] = [
   'obstacle-flower', 'obstacle-web', 'obstacle-snake',
   'obstacle-mushroom', 'obstacle-thorns', 'obstacle-lantern',
 ]
-const TRAP_TYPES: WorldObjectType[] = ['trap-rock', 'trap-rock', 'trap-rock', 'trap-board', 'trap-vine']
+const TRAP_TYPES: WorldObjectType[] = ['trap-rock', 'trap-rock', 'trap-rock', 'trap-board', 'trap-board']
 
 // Fixed tree world positions — used by the scene to render trees and to snap
 // vine / branch / beehive / web to the correct tree.
@@ -91,7 +91,7 @@ export const OBSTACLE_R_MAP: Record<string, number> = {
 }
 
 // Purely visual — bee flies through without penalty
-const PASSTHROUGH_OBSTACLES = new Set<WorldObjectType>(['obstacle-lantern'])
+const PASSTHROUGH_OBSTACLES = new Set<WorldObjectType>(['obstacle-lantern', 'obstacle-thorns'])
 
 function seededRand(seed: number): () => number {
   let s = seed
@@ -163,7 +163,7 @@ export function generateWorldObjects(seed = 42): WorldObjectSeed[] {
   objects.push({ id: 'hive', type: 'hive', worldX: Math.max(x + 400, LEVEL_LENGTH) })
 
   // ── Snap tree-attached objects to nearest tree worldX ─────────────────────
-  const TREE_HANGING = new Set(['obstacle-web', 'obstacle-snake', 'trap-vine', 'hive'])
+  const TREE_HANGING = new Set(['obstacle-web', 'obstacle-snake', 'hive'])
   for (const o of objects) {
     if (!TREE_HANGING.has(o.type)) continue
     o.worldX = snapToTree(o.worldX)
